@@ -10,45 +10,54 @@ function shuffle(arr) {
   return a;
 }
 
+function fetchWithTimeout(url, ms) {
+  return new Promise(function(resolve, reject) {
+    var timer = setTimeout(function() { reject(new Error('timeout')); }, ms);
+    fetch(url).then(function(r) {
+      clearTimeout(timer);
+      resolve(r);
+    }).catch(function(e) {
+      clearTimeout(timer);
+      reject(e);
+    });
+  });
+}
+
 async function getAudio(sci) {
   try {
-    // Split scientific name into genus and species for xeno-canto
-    const parts = sci.split(' ');
-    const query = encodeURIComponent(parts.join('+'));
-    const url = 'https://xeno-canto.org/api/2/recordings?query=' + query;
-    console.log('Fetching audio:', url);
-    const r = await fetch(url, { signal: AbortSignal.timeout(8000) });
-    if (!r.ok) { console.log('xeno-canto status:', r.status); return null; }
-    const d = await r.json();
-    console.log('xeno-canto results:', d.numRecordings);
+    var url = 'https://xeno-canto.org/api/2/recordings?query=' + encodeURIComponent(sci);
+    console.log('XC fetch:', url);
+    var r = await fetchWithTimeout(url, 10000);
+    console.log('XC status:', r.status);
+    if (!r.ok) return null;
+    var d = await r.json();
+    console.log('XC recordings:', d.numRecordings);
     if (!d.recordings || d.recordings.length === 0) return null;
-    // Filter for short recordings
-    const good = d.recordings.filter(function(rec) {
-      var p = rec.length ? rec.length.split(':') : [];
-      var s = p.length === 2 ? parseInt(p[0]) * 60 + parseFloat(p[1]) : parseFloat(p[0]) || 999;
-      return s >= 2 && s <= 30;
-    });
+    var good = [];
+    for (var i = 0; i < d.recordings.length && i < 20; i++) {
+      var rec = d.recordings[i];
+      var parts = rec.length ? rec.length.split(':') : [];
+      var secs = parts.length === 2 ? parseInt(parts[0]) * 60 + parseFloat(parts[1]) : 999;
+      if (secs >= 2 && secs <= 30) good.push(rec);
+    }
     var pick = good.length > 0 ? good[Math.floor(Math.random() * Math.min(good.length, 5))] : d.recordings[0];
     var audioUrl = pick.file;
-    // Ensure https
     if (audioUrl && audioUrl.startsWith('//')) audioUrl = 'https:' + audioUrl;
-    if (audioUrl && !audioUrl.startsWith('http')) audioUrl = 'https://' + audioUrl;
-    console.log('Audio URL:', audioUrl, 'Recordist:', pick.rec);
-    return { audioUrl: audioUrl, recordist: pick.rec, license: pick.lic, xcId: pick.id };
+    console.log('XC audio:', audioUrl);
+    return { audioUrl: audioUrl, recordist: pick.rec, license: pick.lic };
   } catch (e) {
-    console.error('xeno-canto error:', e.message);
+    console.error('XC error:', e.message);
     return null;
   }
 }
 
 async function getImage(sci) {
   try {
-    const q = encodeURIComponent(sci);
-    const url = 'https://commons.wikimedia.org/w/api.php?action=query&generator=search&gsrsearch=' + q + '&gsrnamespace=6&gsrlimit=5&prop=imageinfo&iiprop=url|extmetadata&iiurlwidth=640&format=json&origin=*';
-    const r = await fetch(url, { signal: AbortSignal.timeout(8000) });
+    var url = 'https://commons.wikimedia.org/w/api.php?action=query&generator=search&gsrsearch=' + encodeURIComponent(sci) + '&gsrnamespace=6&gsrlimit=5&prop=imageinfo&iiprop=url|extmetadata&iiurlwidth=640&format=json&origin=*';
+    var r = await fetchWithTimeout(url, 10000);
     if (!r.ok) return null;
-    const d = await r.json();
-    const pages = d.query ? d.query.pages : null;
+    var d = await r.json();
+    var pages = d.query ? d.query.pages : null;
     if (!pages) return null;
     var entries = Object.values(pages);
     for (var i = 0; i < entries.length; i++) {
@@ -69,9 +78,9 @@ async function getImage(sci) {
 }
 
 export async function GET(request) {
-  const url = new URL(request.url);
-  const region = url.searchParams.get('region') || 'Global';
-  const habitat = url.searchParams.get('habitat') || 'All';
+  var url = new URL(request.url);
+  var region = url.searchParams.get('region') || 'Global';
+  var habitat = url.searchParams.get('habitat') || 'All';
   var pool = BIRDS.filter(function(b) {
     var rm = region === 'Global' || b.regions.indexOf(region) >= 0 || b.regions.indexOf('Global') >= 0;
     var hm = habitat === 'All' || b.habitats.indexOf(habitat) >= 0;
@@ -82,12 +91,15 @@ export async function GET(request) {
   var correct = shuffled[0];
   var distractors = shuffled.filter(function(b) { return b.id !== correct.id; }).slice(0, 3);
   var options = shuffle([correct].concat(distractors));
-
-  // Fetch audio and image in parallel
-  var results = await Promise.allSettled([getAudio(correct.sci), getImage(correct.sci)]);
-  var audio = results[0].status === 'fulfilled' ? results[0].value : null;
-  var image = results[1].status === 'fulfilled' ? results[1].value : null;
-
+  var audio = null;
+  var image = null;
+  try {
+    var results = await Promise.all([getAudio(correct.sci), getImage(correct.sci)]);
+    audio = results[0];
+    image = results[1];
+  } catch(e) {
+    console.error('Parallel fetch error:', e.message);
+  }
   return NextResponse.json({
     correctId: correct.id,
     audioUrl: audio ? audio.audioUrl : null,
@@ -108,4 +120,4 @@ export async function GET(request) {
       imageCredit: image ? image.imageCredit : null
     }
   });
-        }
+                      }
