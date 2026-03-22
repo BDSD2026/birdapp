@@ -1,9 +1,29 @@
 @tailwind base;
 @tailwind components;
 @tailwind utilities;
-body{background:linear-gradient(165deg,#06101f 0%,#0c1d38 30%,#132d4a 60%,#091a2e 100%);min-height:100vh}
-@keyframes fadeUp{from{opacity:0;transform:translateY(14px)}to{opacity:1;transform:translateY(0)}}
-@keyframes pulse-bar{0%,100%{transform:scaleY(.3)}50%{transform:scaleY(1)}}
-@keyframes spin{to{transform:rotate(360deg)}}
-.animate-fadeUp{animation:fadeUp .4s ease-out}
-.animate-spin-slow{animation:spin .8s linear infinite}
+
+@import url('https://fonts.googleapis.com/css2?family=Playfair+Display:wght@400;500;600;700;800&display=swap');
+
+body {
+  background: linear-gradient(165deg, #080f1c 0%, #0c1a2e 40%, #0f2235 70%, #080f1c 100%);
+  min-height: 100vh;
+}
+
+@keyframes fadeUp {
+  from { opacity: 0; transform: translateY(16px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes pulse-bar {
+  0%, 100% { transform: scaleY(0.25); }
+  50% { transform: scaleY(1); }
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+  }
