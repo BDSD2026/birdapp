@@ -22,20 +22,21 @@ function isGoodImage(page) {
   var info = page.imageinfo ? page.imageinfo[0] : null;
   if (!info) return null;
   var mime = info.mime || '';
-  if (mime.indexOf('svg') >= 0) return null;
+  if (mime.indexOf('svg') >= 0 || mime.indexOf('gif') >= 0) return null;
   var t = (page.title || '').toLowerCase();
-  if (t.indexOf('map') >= 0 || t.indexOf('range') >= 0 || t.indexOf('distribution') >= 0 || t.indexOf('logo') >= 0 || t.indexOf('icon') >= 0 || t.indexOf('stamp') >= 0 || t.indexOf('egg') >= 0) return null;
+  var bad = ['map','range','distribution','logo','icon','stamp','egg','skeleton','skull','diagram','chart','graph','museum','specimen','taxo'];
+  for (var i = 0; i < bad.length; i++) { if (t.indexOf(bad[i]) >= 0) return null; }
   var credit = 'Wikimedia Commons';
   if (info.extmetadata && info.extmetadata.Artist && info.extmetadata.Artist.value) {
-    credit = info.extmetadata.Artist.value.replace(/<[^>]*>/g, '');
+    credit = info.extmetadata.Artist.value.replace(/<[^>]*>/g, '').substring(0, 60);
   }
   return { imageUrl: info.thumburl || info.url, imageCredit: credit };
 }
 
 async function searchWiki(query) {
   try {
-    var url = 'https://commons.wikimedia.org/w/api.php?action=query&generator=search&gsrsearch=' + encodeURIComponent(query) + '&gsrnamespace=6&gsrlimit=8&prop=imageinfo&iiprop=url|extmetadata|mime&iiurlwidth=640&format=json&origin=*';
-    var r = await fetchT(url, 8000);
+    var url = 'https://commons.wikimedia.org/w/api.php?action=query&generator=search&gsrsearch=' + encodeURIComponent(query) + '&gsrnamespace=6&gsrlimit=10&prop=imageinfo&iiprop=url|extmetadata|mime&iiurlwidth=640&format=json&origin=*';
+    var r = await fetchT(url, 12000);
     if (!r.ok) return null;
     var d = await r.json();
     var pages = d.query ? d.query.pages : null;
@@ -50,13 +51,17 @@ async function searchWiki(query) {
 }
 
 async function getImage(sci, en) {
-  // Strategy 1: Search by scientific name
+  // Strategy 1: Scientific name (most specific)
   var result = await searchWiki(sci);
   if (result) return result;
-  // Strategy 2: Search by English name + bird
+  // Strategy 2: English name + "bird" (catches common names)
   result = await searchWiki(en + ' bird');
   if (result) return result;
-  // Strategy 3: Search by just English name
+  // Strategy 3: Just genus name (broader search)
+  var genus = sci.split(' ')[0];
+  if (genus) result = await searchWiki(genus);
+  if (result) return result;
+  // Strategy 4: English name only
   result = await searchWiki(en);
   return result;
 }
@@ -85,8 +90,13 @@ export async function GET(request) {
     license = correct.xcLic || 'CC';
   }
 
-  // Try multiple strategies to find an image
-  var image = await getImage(correct.sci, correct.en);
+  // Use pre-cached image if available, otherwise search Wikimedia
+  var image = null;
+  if (correct.imgUrl) {
+    image = { imageUrl: correct.imgUrl, imageCredit: correct.imgCredit || 'Wikimedia Commons' };
+  } else {
+    image = await getImage(correct.sci, correct.en);
+  }
 
   return NextResponse.json({
     correctId: correct.id,
@@ -106,4 +116,4 @@ export async function GET(request) {
       imageCredit: image ? image.imageCredit : null
     }
   });
-      }
+    }
