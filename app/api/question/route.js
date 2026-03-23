@@ -17,7 +17,6 @@ function fetchT(url, ms) {
   ]);
 }
 
-// Strategy 1: Wikipedia REST API (fastest, most reliable)
 async function wikiRest(name) {
   try {
     var url = 'https://en.wikipedia.org/api/rest_v1/page/summary/' + encodeURIComponent(name.replace(/ /g, '_'));
@@ -25,8 +24,7 @@ async function wikiRest(name) {
     if (!r.ok) return null;
     var d = await r.json();
     if (d.thumbnail && d.thumbnail.source) {
-      var imgUrl = d.thumbnail.source.replace(/\/\d+px-/, '/640px-');
-      return { imageUrl: imgUrl, imageCredit: 'Wikipedia' };
+      return { imageUrl: d.thumbnail.source.replace(/\/\d+px-/, '/640px-'), imageCredit: 'Wikipedia' };
     }
     if (d.originalimage && d.originalimage.source) {
       return { imageUrl: d.originalimage.source, imageCredit: 'Wikipedia' };
@@ -35,10 +33,28 @@ async function wikiRest(name) {
   } catch (e) { return null; }
 }
 
-// Strategy 2: Commons search
+// Wikipedia search API - finds the right article even with name variations
+async function wikiSearch(query) {
+  try {
+    var url = 'https://en.wikipedia.org/w/api.php?action=query&generator=search&gsrsearch=' + encodeURIComponent(query + ' bird') + '&gsrlimit=3&prop=pageimages&piprop=thumbnail&pithumbsize=640&format=json&origin=*';
+    var r = await fetchT(url, 6000);
+    if (!r.ok) return null;
+    var d = await r.json();
+    var pages = d.query ? d.query.pages : null;
+    if (!pages) return null;
+    var entries = Object.values(pages);
+    for (var i = 0; i < entries.length; i++) {
+      if (entries[i].thumbnail && entries[i].thumbnail.source) {
+        return { imageUrl: entries[i].thumbnail.source.replace(/\/\d+px-/, '/640px-'), imageCredit: 'Wikipedia' };
+      }
+    }
+    return null;
+  } catch (e) { return null; }
+}
+
 async function commonsSearch(query) {
   try {
-    var url = 'https://commons.wikimedia.org/w/api.php?action=query&generator=search&gsrsearch=' + encodeURIComponent(query) + '&gsrnamespace=6&gsrlimit=6&prop=imageinfo&iiprop=url|extmetadata|mime&iiurlwidth=640&format=json&origin=*';
+    var url = 'https://commons.wikimedia.org/w/api.php?action=query&generator=search&gsrsearch=' + encodeURIComponent(query) + '&gsrnamespace=6&gsrlimit=5&prop=imageinfo&iiprop=url|extmetadata|mime&iiurlwidth=640&format=json&origin=*';
     var r = await fetchT(url, 8000);
     if (!r.ok) return null;
     var d = await r.json();
@@ -48,11 +64,10 @@ async function commonsSearch(query) {
     for (var i = 0; i < entries.length; i++) {
       var info = entries[i].imageinfo ? entries[i].imageinfo[0] : null;
       if (!info) continue;
-      var mime = info.mime || '';
-      if (mime.indexOf('svg') >= 0 || mime.indexOf('gif') >= 0) continue;
+      if (/svg|gif/.test(info.mime || '')) continue;
       var t = (entries[i].title || '').toLowerCase();
       if (/map|range|distribut|logo|icon|stamp|egg|skeleton|skull|diagram|taxo|specim/.test(t)) continue;
-      var credit = 'Wikimedia Commons';
+      var credit = 'Wikimedia';
       if (info.extmetadata && info.extmetadata.Artist && info.extmetadata.Artist.value) {
         credit = info.extmetadata.Artist.value.replace(/<[^>]*>/g, '').substring(0, 60);
       }
@@ -63,15 +78,19 @@ async function commonsSearch(query) {
 }
 
 async function getImage(sci, en) {
-  // Try Wikipedia REST first (fast, reliable)
+  // 1. Wikipedia REST by English name
   var img = await wikiRest(en);
   if (img) return img;
-  // Try scientific name on Wikipedia
+  // 2. Wikipedia REST by scientific name
   img = await wikiRest(sci);
   if (img) return img;
-  // Fall back to Commons search
+  // 3. Wikipedia search (handles name variations like Secretary Bird vs Secretarybird)
+  img = await wikiSearch(en);
+  if (img) return img;
+  // 4. Commons search by scientific name
   img = await commonsSearch(sci);
   if (img) return img;
+  // 5. Commons search by English name
   img = await commonsSearch(en + ' bird');
   return img;
 }
@@ -110,4 +129,4 @@ export async function GET(request) {
       imageCredit: image ? image.imageCredit : null
     }
   });
-      }
+  }
