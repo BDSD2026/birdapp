@@ -1,69 +1,79 @@
 import { NextResponse } from 'next/server';
 import { BIRDS } from '@/lib/birds';
 
-function shuffle(arr) {
-  var a = arr.slice();
-  for (var i = a.length - 1; i > 0; i--) {
+function shuffle(a) {
+  var arr = a.slice();
+  for (var i = arr.length - 1; i > 0; i--) {
     var j = Math.floor(Math.random() * (i + 1));
-    var t = a[i]; a[i] = a[j]; a[j] = t;
+    var t = arr[i]; arr[i] = arr[j]; arr[j] = t;
   }
-  return a;
+  return arr;
 }
 
 function fetchT(url, ms) {
-  return new Promise(function(resolve, reject) {
-    var timer = setTimeout(function() { reject(new Error('timeout')); }, ms);
-    fetch(url).then(function(r) { clearTimeout(timer); resolve(r); })
-      .catch(function(e) { clearTimeout(timer); reject(e); });
-  });
+  return Promise.race([
+    fetch(url),
+    new Promise(function(_, rej) { setTimeout(function() { rej(new Error('timeout')); }, ms); })
+  ]);
 }
 
-function isGoodImage(page) {
-  var info = page.imageinfo ? page.imageinfo[0] : null;
-  if (!info) return null;
-  var mime = info.mime || '';
-  if (mime.indexOf('svg') >= 0 || mime.indexOf('gif') >= 0) return null;
-  var t = (page.title || '').toLowerCase();
-  var bad = ['map','range','distribution','logo','icon','stamp','egg','skeleton','skull','diagram','chart','graph','museum','specimen','taxo'];
-  for (var i = 0; i < bad.length; i++) { if (t.indexOf(bad[i]) >= 0) return null; }
-  var credit = 'Wikimedia Commons';
-  if (info.extmetadata && info.extmetadata.Artist && info.extmetadata.Artist.value) {
-    credit = info.extmetadata.Artist.value.replace(/<[^>]*>/g, '').substring(0, 60);
-  }
-  return { imageUrl: info.thumburl || info.url, imageCredit: credit };
-}
-
-async function searchWiki(query) {
+// Strategy 1: Wikipedia REST API (fastest, most reliable)
+async function wikiRest(name) {
   try {
-    var url = 'https://commons.wikimedia.org/w/api.php?action=query&generator=search&gsrsearch=' + encodeURIComponent(query) + '&gsrnamespace=6&gsrlimit=10&prop=imageinfo&iiprop=url|extmetadata|mime&iiurlwidth=640&format=json&origin=*';
-    var r = await fetchT(url, 12000);
+    var url = 'https://en.wikipedia.org/api/rest_v1/page/summary/' + encodeURIComponent(name.replace(/ /g, '_'));
+    var r = await fetchT(url, 6000);
+    if (!r.ok) return null;
+    var d = await r.json();
+    if (d.thumbnail && d.thumbnail.source) {
+      var imgUrl = d.thumbnail.source.replace(/\/\d+px-/, '/640px-');
+      return { imageUrl: imgUrl, imageCredit: 'Wikipedia' };
+    }
+    if (d.originalimage && d.originalimage.source) {
+      return { imageUrl: d.originalimage.source, imageCredit: 'Wikipedia' };
+    }
+    return null;
+  } catch (e) { return null; }
+}
+
+// Strategy 2: Commons search
+async function commonsSearch(query) {
+  try {
+    var url = 'https://commons.wikimedia.org/w/api.php?action=query&generator=search&gsrsearch=' + encodeURIComponent(query) + '&gsrnamespace=6&gsrlimit=6&prop=imageinfo&iiprop=url|extmetadata|mime&iiurlwidth=640&format=json&origin=*';
+    var r = await fetchT(url, 8000);
     if (!r.ok) return null;
     var d = await r.json();
     var pages = d.query ? d.query.pages : null;
     if (!pages) return null;
     var entries = Object.values(pages);
     for (var i = 0; i < entries.length; i++) {
-      var result = isGoodImage(entries[i]);
-      if (result) return result;
+      var info = entries[i].imageinfo ? entries[i].imageinfo[0] : null;
+      if (!info) continue;
+      var mime = info.mime || '';
+      if (mime.indexOf('svg') >= 0 || mime.indexOf('gif') >= 0) continue;
+      var t = (entries[i].title || '').toLowerCase();
+      if (/map|range|distribut|logo|icon|stamp|egg|skeleton|skull|diagram|taxo|specim/.test(t)) continue;
+      var credit = 'Wikimedia Commons';
+      if (info.extmetadata && info.extmetadata.Artist && info.extmetadata.Artist.value) {
+        credit = info.extmetadata.Artist.value.replace(/<[^>]*>/g, '').substring(0, 60);
+      }
+      return { imageUrl: info.thumburl || info.url, imageCredit: credit };
     }
     return null;
   } catch (e) { return null; }
 }
 
 async function getImage(sci, en) {
-  // Strategy 1: Scientific name (most specific)
-  var result = await searchWiki(sci);
-  if (result) return result;
-  // Strategy 2: English name + "bird" (catches common names)
-  result = await searchWiki(en + ' bird');
-  if (result) return result;
-  // Strategy 3: Just genus name (broader search)
-  var genus = sci.split(' ')[0];
-  if (genus) result = await searchWiki(genus);
-  if (result) return result;
-  // Strategy 4: English name only
-  result = await searchWiki(en);
-  return result;
+  // Try Wikipedia REST first (fast, reliable)
+  var img = await wikiRest(en);
+  if (img) return img;
+  // Try scientific name on Wikipedia
+  img = await wikiRest(sci);
+  if (img) return img;
+  // Fall back to Commons search
+  img = await commonsSearch(sci);
+  if (img) return img;
+  img = await commonsSearch(en + ' bird');
+  return img;
 }
 
 export async function GET(request) {
@@ -80,31 +90,15 @@ export async function GET(request) {
   var correct = shuffled[0];
   var distractors = shuffled.filter(function(b) { return b.id !== correct.id; }).slice(0, 3);
   var options = shuffle([correct].concat(distractors));
-
-  var audioUrl = null;
-  var recordist = null;
-  var license = null;
-  if (correct.xcId) {
-    audioUrl = 'https://xeno-canto.org/' + correct.xcId + '/download';
-    recordist = correct.xcRec || 'xeno-canto';
-    license = correct.xcLic || 'CC';
-  }
-
-  // Use pre-cached image if available, otherwise search Wikimedia
-  var image = null;
-  if (correct.imgUrl) {
-    image = { imageUrl: correct.imgUrl, imageCredit: correct.imgCredit || 'Wikimedia Commons' };
-  } else {
-    image = await getImage(correct.sci, correct.en);
-  }
-
+  var audioUrl = correct.xcId ? 'https://xeno-canto.org/' + correct.xcId + '/download' : null;
+  var recordist = correct.xcRec || 'xeno-canto';
+  var license = correct.xcLic || 'CC';
+  var image = correct.imgUrl
+    ? { imageUrl: correct.imgUrl, imageCredit: correct.imgCredit || 'Wikimedia' }
+    : await getImage(correct.sci, correct.en);
   return NextResponse.json({
-    correctId: correct.id,
-    audioUrl: audioUrl,
-    recordist: recordist,
-    license: license,
-    imageUrl: image ? image.imageUrl : null,
-    imageCredit: image ? image.imageCredit : null,
+    correctId: correct.id, audioUrl: audioUrl, recordist: recordist, license: license,
+    imageUrl: image ? image.imageUrl : null, imageCredit: image ? image.imageCredit : null,
     options: options.map(function(b) { return { id: b.id, en: b.en, sci: b.sci }; }),
     bird: {
       id: correct.id, en: correct.en, sci: correct.sci,
@@ -116,4 +110,4 @@ export async function GET(request) {
       imageCredit: image ? image.imageCredit : null
     }
   });
-    }
+      }
