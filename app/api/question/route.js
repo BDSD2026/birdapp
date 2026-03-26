@@ -17,27 +17,26 @@ function fetchT(url, ms) {
   ]);
 }
 
-// Extract image from Wikipedia REST response
+// Extract image from Wikipedia REST response - DO NOT modify thumbnail URLs
 function extractImg(d) {
-  if (d.thumbnail && d.thumbnail.source) {
-    return { imageUrl: d.thumbnail.source.replace(/\/\d+px-/, '/640px-'), imageCredit: 'Wikipedia' };
-  }
+  // Prefer originalimage for higher quality, fall back to thumbnail as-is
   if (d.originalimage && d.originalimage.source) {
     return { imageUrl: d.originalimage.source, imageCredit: 'Wikipedia' };
+  }
+  if (d.thumbnail && d.thumbnail.source) {
+    return { imageUrl: d.thumbnail.source, imageCredit: 'Wikipedia' };
   }
   return null;
 }
 
 // Wikipedia REST API - try multiple title formats
 async function wikiRest(name) {
-  // Try exact name, then lowercase after first word (Wikipedia convention)
   var titles = [
     name.replace(/ /g, '_'),
     name.split(' ').map(function(w, i) { return i === 0 ? w : w.toLowerCase(); }).join('_'),
     name.toLowerCase().replace(/ /g, '_'),
     name.replace(/-/g, ' ').replace(/ /g, '_')
   ];
-  // Deduplicate
   var seen = {};
   var unique = [];
   for (var i = 0; i < titles.length; i++) {
@@ -56,10 +55,10 @@ async function wikiRest(name) {
   return null;
 }
 
-// Wikipedia search API - finds article even with name variations
+// Wikipedia search API - DO NOT modify thumbnail URLs
 async function wikiSearch(query) {
   try {
-    var url = 'https://en.wikipedia.org/w/api.php?action=query&generator=search&gsrsearch=' + encodeURIComponent(query) + '&gsrlimit=3&prop=pageimages&piprop=thumbnail&pithumbsize=640&format=json&origin=*';
+    var url = 'https://en.wikipedia.org/w/api.php?action=query&generator=search&gsrsearch=' + encodeURIComponent(query) + '&gsrlimit=3&prop=pageimages&piprop=thumbnail|original&pithumbsize=400&format=json&origin=*';
     var r = await fetchT(url, 6000);
     if (!r.ok) return null;
     var d = await r.json();
@@ -67,8 +66,11 @@ async function wikiSearch(query) {
     if (!pages) return null;
     var entries = Object.values(pages);
     for (var i = 0; i < entries.length; i++) {
+      if (entries[i].original && entries[i].original.source) {
+        return { imageUrl: entries[i].original.source, imageCredit: 'Wikipedia' };
+      }
       if (entries[i].thumbnail && entries[i].thumbnail.source) {
-        return { imageUrl: entries[i].thumbnail.source.replace(/\/\d+px-/, '/640px-'), imageCredit: 'Wikipedia' };
+        return { imageUrl: entries[i].thumbnail.source, imageCredit: 'Wikipedia' };
       }
     }
     return null;
@@ -102,19 +104,14 @@ async function commonsSearch(query) {
 }
 
 async function getImage(sci, en) {
-  // 1. Wikipedia REST - tries multiple title casing formats
   var img = await wikiRest(en);
   if (img) return img;
-  // 2. Wikipedia REST by scientific name
   img = await wikiRest(sci);
   if (img) return img;
-  // 3. Wikipedia search (handles all name variations)
   img = await wikiSearch(en + ' bird');
   if (img) return img;
-  // 4. Wikipedia search by scientific name
   img = await wikiSearch(sci);
   if (img) return img;
-  // 5. Commons search
   img = await commonsSearch(sci);
   if (img) return img;
   img = await commonsSearch(en + ' bird');
@@ -155,4 +152,4 @@ export async function GET(request) {
       imageCredit: image ? image.imageCredit : null
     }
   });
-}
+       }
