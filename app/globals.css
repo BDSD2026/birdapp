@@ -9,29 +9,6 @@ body {
   min-height: 100vh;
 }
 
-/* Auto-hide navbar: hidden by default, revealed on hover near top */
-@layer utilities {
-  .auto-nav {
-    transform: translateY(-100%);
-    opacity: 0;
-    transition: transform 0.4s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.35s ease;
-  }
-  .nav-zone {
-    position: fixed;
-    top: 0;
-    left: 0;
-    right: 0;
-    height: 18px;
-    z-index: 51;
-    cursor: default;
-  }
-  .nav-zone:hover + .auto-nav,
-  .auto-nav:hover {
-    transform: translateY(0);
-    opacity: 1;
-  }
-}
-
 @keyframes fadeUp {
   from { opacity: 0; transform: translateY(16px); }
   to { opacity: 1; transform: translateY(0); }
@@ -74,4 +51,4 @@ body {
 @keyframes slideIn {
   from { opacity: 0; transform: translateX(30px); }
   to { opacity: 1; transform: translateX(0); }
-}
+    }
