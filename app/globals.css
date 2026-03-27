@@ -9,15 +9,13 @@ body {
   min-height: 100vh;
 }
 
-@layer base {
-  /* Auto-hide navbar */
-  nav.fixed {
+/* Auto-hide navbar: hidden by default, revealed on hover near top */
+@layer utilities {
+  .auto-nav {
     transform: translateY(-100%);
     opacity: 0;
     transition: transform 0.4s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.35s ease;
   }
-
-  /* Hover trigger zone at top of viewport */
   .nav-zone {
     position: fixed;
     top: 0;
@@ -27,10 +25,8 @@ body {
     z-index: 51;
     cursor: default;
   }
-
-  /* Show nav when hovering trigger zone or nav itself */
-  .nav-zone:hover + nav.fixed,
-  nav.fixed:hover {
+  .nav-zone:hover + .auto-nav,
+  .auto-nav:hover {
     transform: translateY(0);
     opacity: 1;
   }
@@ -78,4 +74,4 @@ body {
 @keyframes slideIn {
   from { opacity: 0; transform: translateX(30px); }
   to { opacity: 1; transform: translateX(0); }
-                             }
+}
