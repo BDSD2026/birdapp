@@ -9,24 +9,31 @@ body {
   min-height: 100vh;
 }
 
-/* Auto-hide navbar - slides up, revealed on hover */
-.nav-autohide {
-  transform: translateY(-100%);
-  opacity: 0;
-  transition: transform 0.35s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.35s ease;
-}
-.nav-trigger:hover + .nav-autohide,
-.nav-autohide:hover {
-  transform: translateY(0);
-  opacity: 1;
-}
-.nav-trigger {
-  position: fixed;
-  top: 0;
-  left: 0;
-  right: 0;
-  height: 24px;
-  z-index: 60;
+@layer base {
+  /* Auto-hide navbar */
+  nav.fixed {
+    transform: translateY(-100%);
+    opacity: 0;
+    transition: transform 0.4s cubic-bezier(0.4, 0, 0.2, 1), opacity 0.35s ease;
+  }
+
+  /* Hover trigger zone at top of viewport */
+  .nav-zone {
+    position: fixed;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 18px;
+    z-index: 51;
+    cursor: default;
+  }
+
+  /* Show nav when hovering trigger zone or nav itself */
+  .nav-zone:hover + nav.fixed,
+  nav.fixed:hover {
+    transform: translateY(0);
+    opacity: 1;
+  }
 }
 
 @keyframes fadeUp {
@@ -71,4 +78,4 @@ body {
 @keyframes slideIn {
   from { opacity: 0; transform: translateX(30px); }
   to { opacity: 1; transform: translateX(0); }
-  }
+                             }
